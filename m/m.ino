@@ -6,6 +6,7 @@
 #include <IotWebConf.h>
 #include <WiFiClient.h>
 #include <HTTPUpdate.h>
+#include <MQTT.h>
 
 #pragma region 
 // MCP2515 STUFF
@@ -32,7 +33,7 @@ std::map<long unsigned int, Msg>::iterator it;
 
 #pragma Configuration
 
-const char thingName[] = "can2mqtt";
+const char appName[] = "can2mqtt";
 const char wifiInitialApPassword[] = "qwerasdf";
 #define STRING_LEN 128
 #define CONFIG_VERSION "mqt1"
@@ -46,7 +47,7 @@ WiFiClient net;
 char mqttServerValue[STRING_LEN];
 char mqttUserNameValue[STRING_LEN];
 char mqttUserPasswordValue[STRING_LEN];
-IotWebConf iotWebConf(thingName, &dnsServer, &server, wifiInitialApPassword, CONFIG_VERSION);
+IotWebConf iotWebConf(appName, &dnsServer, &server, wifiInitialApPassword, CONFIG_VERSION);
 IotWebConfParameter mqttServerParam = IotWebConfParameter("MQTT server", "mqttServer", mqttServerValue, STRING_LEN);
 IotWebConfParameter mqttUserNameParam = IotWebConfParameter("MQTT user", "mqttUser", mqttUserNameValue, STRING_LEN);
 IotWebConfParameter mqttUserPasswordParam = IotWebConfParameter("MQTT password", "mqttPass", mqttUserPasswordValue, STRING_LEN, "password");
@@ -56,24 +57,72 @@ unsigned long lastReport = 0;
 unsigned long lastMqttConnectionAttempt = 0;
 #pragma endregion
 
+MQTTClient mqttClient;
+
+
+
 void processCANMessage();
 void printCANMessage(char prefixString [], long unsigned int rxId, unsigned char len, unsigned char rxBuf[8]);
 void setupCAN();
+void setupConfiguration();
 void setup() 
 {
-    Serial.begin(115200);
+  Serial.begin(115200);
     
-    setupCAN();
+  setupCAN();
+  setupConfiguration();
+
+  mqttClient.begin(mqttServerValue, net);
+  mqttClient.onMessage(mqttMessageReceived);
 }
 
 
 void loop()
 {
-    if (digitalRead(CAN0_INT)) // Continue only if MSG
-    {
-        return;
-    }    
-    processCANMessage();
+  iotWebConf.doLoop();
+  if (digitalRead(CAN0_INT)) // Continue only if MSG
+  {
+      return;
+  }    
+  processCANMessage();
+}
+
+void setupConfiguration() 
+{
+  iotWebConf.addParameter(&mqttServerParam);
+  iotWebConf.addParameter(&mqttUserNameParam);
+  iotWebConf.addParameter(&mqttUserPasswordParam);
+  iotWebConf.setConfigSavedCallback(&configSaved);
+  iotWebConf.setFormValidator(&formValidator);
+  iotWebConf.setWifiConnectionCallback(&wifiConnected);
+  iotWebConf.setupUpdateServer(&httpUpdater);
+   boolean validConfig = iotWebConf.init();
+  if (!validConfig)
+  {
+    mqttServerValue[0] = '\0';
+    mqttUserNameValue[0] = '\0';
+    mqttUserPasswordValue[0] = '\0';
+  }
+  server.on("/", handleRoot);
+  server.on("/config", []{ iotWebConf.handleConfig(); });
+  server.onNotFound([](){ iotWebConf.handleNotFound(); });
+}
+void handleRoot()
+{
+  if (iotWebConf.handleCaptivePortal())
+  {
+    return;
+  }
+  String s = "<!DOCTYPE html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/>";
+  s += "<title>CAN2MQTT bridge</title></head><body>MQTT App demo";
+  s += "<ul>";
+  s += "<li>MQTT server: ";
+  s += mqttServerValue;
+  s += "</ul>";
+  s += "Go to <a href='config'>configure page</a> to change values.";
+  s += "</body></html>\n";
+
+  server.send(200, "text/html", s);
 }
 
 void setupCAN()
@@ -152,7 +201,7 @@ void sendMsg(unsigned long int id, unsigned char len, byte data[])
   }
 }
 
-void printCanMessage(char prefixString [], long unsigned int rxId, unsigned char len, unsigned char rxBuf[8])
+void printCANMessage(char prefixString [], long unsigned int rxId, unsigned char len, unsigned char rxBuf[8])
 {
   Serial.print(prefixString);
   sprintf(msgString, "Id: 0x%lX Data: ", rxId);
@@ -163,4 +212,34 @@ void printCanMessage(char prefixString [], long unsigned int rxId, unsigned char
       Serial.print(msgString);
   }
   Serial.println();
+}
+void wifiConnected()
+{
+  needMqttConnect = true;
+}
+
+void configSaved()
+{
+  Serial.println("Configuration was updated.");
+  needReset = true;
+}
+
+boolean formValidator()
+{
+  Serial.println("Validating form.");
+  boolean valid = true;
+
+  int l = server.arg(mqttServerParam.getId()).length();
+  if (l < 3)
+  {
+    mqttServerParam.errorMessage = "Please provide at least 3 characters!";
+    valid = false;
+  }
+
+  return valid;
+}
+
+void mqttMessageReceived(String &topic, String &payload)
+{
+  Serial.println("Incoming: " + topic + " - " + payload);
 }
