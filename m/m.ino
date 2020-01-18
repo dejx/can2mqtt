@@ -96,6 +96,7 @@ void setupConfiguration()
   iotWebConf.addParameter(&mqttUserPasswordParam);
   iotWebConf.setConfigSavedCallback(&configSaved);
   iotWebConf.setFormValidator(&formValidator);
+  
   iotWebConf.setWifiConnectionCallback(&wifiConnected);
   iotWebConf.setupUpdateServer(&httpUpdater);
    boolean validConfig = iotWebConf.init();
@@ -139,8 +140,8 @@ void setupCAN()
     }
                      
                      
-  CAN0.init_Mask(0,1, 0xFFFFFFFF);
-  CAN0.init_Filt(0,1, 0xFFBFA1E8);                
+  // CAN0.init_Mask(0,1, 0xFFFFFFFF);
+  // CAN0.init_Filt(0,1, 0xFFBFA1E8);                
 
   // Setting MCP to operate normal mode - remove line below to use loopback (development scenario).
   CAN0.setMode(MCP_NORMAL);
@@ -209,7 +210,7 @@ void publishEvent(long unsigned int rxId, unsigned char len, unsigned char rxBuf
   {
     Serial.println("Skipping publish. Not connected to MQTT.");
   }
-  sprintf(topicString, "/device/%s/0x%lX", iotWebConf.getThingName(), rxId);
+  sprintf(topicString, "/device/%s/out/0x%lX", iotWebConf.getThingName(), rxId);
   String payload = "";
   
   for(byte i = 0; i<len; i++)
@@ -261,7 +262,28 @@ boolean formValidator()
 
 void mqttMessageReceived(String &topic, String &payload)
 {
-  Serial.println("Incoming: " + topic + " - " + payload);
+  String id = topic.substring(topic.lastIndexOf('/')+1);
+ 
+  unsigned long int id1 = (unsigned long int)id.toInt();
+  
+  // Serial.println("Incoming: " + id + " - " + payload);
+  unsigned long ul = strtoul (id.c_str(), NULL, 0);
+  
+  std::string word;
+
+  std::istringstream iss(payload.c_str(), std::istringstream::in);
+
+  byte data[8];
+  int byteCounter = 0;
+  while( iss >> word )     
+  {
+    Serial.println(word.c_str());
+    data[byteCounter] = strtoul (word.c_str(), NULL, 0);;
+    byteCounter++;
+  }
+  // sprintf(msgString, "Id: 0x%lX Data: ", ul);
+  // Serial.print(msgString);
+  sendMsg(ul, byteCounter, data);
 }
 
 
@@ -303,8 +325,8 @@ boolean connectMqtt() {
     return false;
   }
   Serial.println("Connected!");
-
-  mqttClient.subscribe("/test/action");
+  sprintf(topicString, "/device/%s/in/#", iotWebConf.getThingName());
+  mqttClient.subscribe(topicString);
   return true;
 }
 boolean connectMqttOptions()
