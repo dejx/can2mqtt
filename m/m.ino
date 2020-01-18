@@ -18,6 +18,7 @@ char msgString[256];                        // Array to store serial string
 char topicString[128];                      // MQTT Topic string
 char hexString[64];                         // MQTT Payload string
 
+#define DONT_PROCESS_CAN_UNTIL_MQTT false
 
 #define CAN0_INT 4                              // MCP2515 INT  to pin 4
 MCP_CAN CAN0(2);                               // MCP2515 CS   to pin 2
@@ -131,6 +132,7 @@ void handleRoot()
 void setupCAN()
 {
   if (CAN0.begin(MCP_STDEXT, CAN_100KBPS, MCP_8MHZ) == CAN_OK)
+  if (CAN0.begin(MCP_EXT, CAN_100KBPS, MCP_8MHZ) == CAN_OK)
     {
         Serial.println("MCP2515 Initialized Successfully!");
     }
@@ -150,7 +152,7 @@ void setupCAN()
   pinMode(CAN0_INT, INPUT);
 
   // Enable one shot transmit - TODO research
-  CAN0.enOneShotTX();
+  // CAN0.enOneShotTX();
   Serial.println("CANBus configured.");
 }
 
@@ -160,6 +162,11 @@ void processCANMessage()
   {
       return;
   }
+  if(!mqttClient.connected() && DONT_PROCESS_CAN_UNTIL_MQTT)
+  {
+    return;
+  }
+
   CAN0.readMsgBuf(&rxId, &len, rxBuf);
   Msg msgNew = Msg();
   msgNew.len = len;
@@ -172,7 +179,7 @@ void processCANMessage()
     msgDictionary[rxId] = msgNew;
     
     printCANMessage("New event:     ", rxId, len, rxBuf);
-    // publishEvent(rxId, len, rxBuf);
+    publishEvent(rxId, len, rxBuf);
   }
   else 
   {
