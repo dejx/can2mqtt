@@ -4,7 +4,8 @@
             "name": "Win32",
             "includePath": [
                 "C:\\Users\\Dejan\\Documents\\Arduino\\hardware\\espressif\\esp32\\**",
-                "C:\\dev\\iot\\CAN ZERO\\OTHER\\**"
+                "C:\\Users\\Dejan\\Documents\\Arduino\\libraries\\**"
+                
             ],
             "forcedInclude": [],
             "intelliSenseMode": "msvc-x64",
