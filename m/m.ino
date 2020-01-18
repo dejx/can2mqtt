@@ -131,7 +131,6 @@ void handleRoot()
 
 void setupCAN()
 {
-  if (CAN0.begin(MCP_STDEXT, CAN_100KBPS, MCP_8MHZ) == CAN_OK)
   if (CAN0.begin(MCP_EXT, CAN_100KBPS, MCP_8MHZ) == CAN_OK)
     {
         Serial.println("MCP2515 Initialized Successfully!");
@@ -193,7 +192,6 @@ void processCANMessage()
       {
         printCANMessage("Diffrent data: ", rxId, len, rxBuf);
         publishEvent(rxId, len, rxBuf);
-        // printCanMessage("Second:        ", rxId, it->second.len, it->second.rxBuf);
       }
     }
   }
@@ -205,7 +203,7 @@ void sendMsg(unsigned long int id, unsigned char len, byte data[])
   if (sndStat != CAN_OK)
   {
     int i = CAN0.getError();
-    sprintf(msgString, "Error Sending Message.. %1d", i);
+    sprintf(msgString, "Error Sending Message.. %d ... snd: %d", i, sndStat);
 
     Serial.println(msgString);
   }
