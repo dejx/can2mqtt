@@ -15,8 +15,8 @@ unsigned char len = 0;                      // CAN BUS - DLC size
 unsigned char rxBuf[8];                     // CAN BUS - Data array.
 char msgString[256];                        // Array to store serial string
 
-char idString[8];                           // Array to store can id
-
+char topicString[128];                      // MQTT Topic string
+char hexString[64];                         // MQTT Payload string
 
 
 #define CAN0_INT 4                              // MCP2515 INT  to pin 4
@@ -62,9 +62,11 @@ MQTTClient mqttClient;
 
 
 void processCANMessage();
+void processMQTT();
 void printCANMessage(char prefixString [], long unsigned int rxId, unsigned char len, unsigned char rxBuf[8]);
 void setupCAN();
 void setupConfiguration();
+
 void setup() 
 {
   Serial.begin(115200);
@@ -80,10 +82,10 @@ void setup()
 void loop()
 {
   iotWebConf.doLoop();
-  if (digitalRead(CAN0_INT)) // Continue only if MSG
-  {
-      return;
-  }    
+  mqttClient.loop();
+
+  
+  processMQTT();
   processCANMessage();
 }
 
@@ -153,6 +155,10 @@ void setupCAN()
 
 void processCANMessage() 
 {
+  if (digitalRead(CAN0_INT)) // Continue only if MSG
+  {
+      return;
+  }
   CAN0.readMsgBuf(&rxId, &len, rxBuf);
   Msg msgNew = Msg();
   msgNew.len = len;
@@ -165,6 +171,7 @@ void processCANMessage()
     msgDictionary[rxId] = msgNew;
     
     printCANMessage("New event:     ", rxId, len, rxBuf);
+    // publishEvent(rxId, len, rxBuf);
   }
   else 
   {
@@ -177,15 +184,10 @@ void processCANMessage()
       if(rxId != 0x8E405E17 && rxId != 0x8E605E17 && rxId != 0x8F005E17)
       {
         printCANMessage("Diffrent data: ", rxId, len, rxBuf);
+        publishEvent(rxId, len, rxBuf);
         // printCanMessage("Second:        ", rxId, it->second.len, it->second.rxBuf);
       }
-      // if(rxId == 0x8600721E)
-      // {
-      //   byte data[1] = {0x01};
-      //   sendMsg(0x8700378E, 1,data);
-      // }
-    } 
-    
+    }
   }
 }
 
@@ -201,6 +203,23 @@ void sendMsg(unsigned long int id, unsigned char len, byte data[])
   }
 }
 
+void publishEvent(long unsigned int rxId, unsigned char len, unsigned char rxBuf[8])
+{
+  if(!mqttClient.connected())
+  {
+    Serial.println("Skipping publish. Not connected to MQTT.");
+  }
+  sprintf(topicString, "/device/%s/0x%lX", iotWebConf.getThingName(), rxId);
+  String payload = "";
+  
+  for(byte i = 0; i<len; i++)
+  {
+    sprintf(hexString, " 0x%.2X", rxBuf[i]);
+    payload += hexString;
+  }
+  
+  mqttClient.publish(topicString, payload.substring(1)); // Skipping first char because of the whitespace at the beginning
+}
 void printCANMessage(char prefixString [], long unsigned int rxId, unsigned char len, unsigned char rxBuf[8])
 {
   Serial.print(prefixString);
@@ -212,6 +231,7 @@ void printCANMessage(char prefixString [], long unsigned int rxId, unsigned char
       Serial.print(msgString);
   }
   Serial.println();
+
 }
 void wifiConnected()
 {
@@ -242,4 +262,65 @@ boolean formValidator()
 void mqttMessageReceived(String &topic, String &payload)
 {
   Serial.println("Incoming: " + topic + " - " + payload);
+}
+
+
+void processMQTT()
+{
+   mqttClient.loop();
+  
+  if (needMqttConnect)
+  {
+    if (connectMqtt())
+    {
+      needMqttConnect = false;
+    }
+  }
+  else if ((iotWebConf.getState() == IOTWEBCONF_STATE_ONLINE) && (!mqttClient.connected()))
+  {
+    Serial.println("MQTT reconnect");
+    connectMqtt();
+  }
+  
+  if (needReset)
+  {
+    Serial.println("Rebooting after 1 second.");
+    iotWebConf.delay(1000);
+    ESP.restart();
+  }
+}
+
+boolean connectMqtt() {
+  unsigned long now = millis();
+  if (1000 > now - lastMqttConnectionAttempt)
+  {
+    // Do not repeat within 1 sec.
+    return false;
+  }
+  Serial.println("Connecting to MQTT server...");
+  if (!connectMqttOptions()) {
+    lastMqttConnectionAttempt = now;
+    return false;
+  }
+  Serial.println("Connected!");
+
+  mqttClient.subscribe("/test/action");
+  return true;
+}
+boolean connectMqttOptions()
+{
+  boolean result;
+  if (mqttUserPasswordValue[0] != '\0')
+  {
+    result = mqttClient.connect(iotWebConf.getThingName(), mqttUserNameValue, mqttUserPasswordValue);
+  }
+  else if (mqttUserNameValue[0] != '\0')
+  {
+    result = mqttClient.connect(iotWebConf.getThingName(), mqttUserNameValue);
+  }
+  else
+  {
+    result = mqttClient.connect(iotWebConf.getThingName());
+  }
+  return result;
 }
