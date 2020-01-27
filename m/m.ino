@@ -29,6 +29,16 @@ struct Msg {
 };
 std::map<long unsigned int, Msg> msgDictionary;
 std::map<long unsigned int, Msg>::iterator it;
+std::map<long unsigned int, int> relayDictionary
+{
+  { 0x8600721E, 8 },
+  { 0x860041C4, 8},
+  { 0x86004A8F, 2},
+  { 0x86004A89, 2},
+  { 0x86004A95, 2},
+  { 0x86004A6A, 2}
+};
+std::map<long unsigned int, int>::iterator relayIterator;
 #pragma endregion
 
 
@@ -131,7 +141,7 @@ void handleRoot()
 
 void setupCAN()
 {
-  if (CAN0.begin(MCP_EXT, CAN_100KBPS, MCP_8MHZ) == CAN_OK)
+  if (CAN0.begin(MCP_STDEXT, CAN_100KBPS, MCP_8MHZ) == CAN_OK)
     {
         Serial.println("MCP2515 Initialized Successfully!");
     }
@@ -167,6 +177,10 @@ void processCANMessage()
   }
 
   CAN0.readMsgBuf(&rxId, &len, rxBuf);
+  if(len > 1) // skipping messages that are not for me.
+  {
+    return;
+  }
   Msg msgNew = Msg();
   msgNew.len = len;
   memcpy ( &msgNew.rxBuf, rxBuf, len);
@@ -188,7 +202,7 @@ void processCANMessage()
     {
       it->second = msgNew;
 
-      if(rxId != 0x8E405E17 && rxId != 0x8E605E17 && rxId != 0x8F005E17)
+      if(rxId != 0x8E405E17 && rxId != 0x8E605E17 && rxId != 0x8F005E17 && rxId != 0x87805E17)
       {
         printCANMessage("Diffrent data: ", rxId, len, rxBuf);
         publishEvent(rxId, len, rxBuf);
@@ -225,6 +239,21 @@ void publishEvent(long unsigned int rxId, unsigned char len, unsigned char rxBuf
   }
   
   mqttClient.publish(topicString, payload.substring(1)); // Skipping first char because of the whitespace at the beginning
+
+  relayIterator = relayDictionary.find(rxId);
+  if(relayIterator != relayDictionary.end()) 
+  {
+    int len = relayIterator->second;
+    char d = rxBuf[0];
+    for(int i = 0 ; i < len ; i++)
+    {
+      sprintf(topicString, "/device/%s/out/0x%lX.%d", iotWebConf.getThingName(), rxId, i);
+      byte shift = 1 << i;
+      byte state = (d & shift) >> i;
+      sprintf(hexString, "%d", state);
+      mqttClient.publish(topicString, state ? "on" : "off");
+    }
+  }
 }
 void printCANMessage(char prefixString [], long unsigned int rxId, unsigned char len, unsigned char rxBuf[8])
 {
@@ -268,7 +297,12 @@ boolean formValidator()
 void mqttMessageReceived(String &topic, String &payload)
 {
   String id = topic.substring(topic.lastIndexOf('/')+1);
- 
+  if(payload == "on" || payload == "off")
+  {
+      id = topic.substring(0, topic.lastIndexOf('-'));
+      id = id.substring(id.lastIndexOf('/')+1);
+      payload = topic.substring(topic.lastIndexOf('-')+1);
+  }
   unsigned long int id1 = (unsigned long int)id.toInt();
   
   // Serial.println("Incoming: " + id + " - " + payload);
@@ -313,6 +347,7 @@ void processMQTT()
   {
     Serial.println("Rebooting after 1 second.");
     iotWebConf.delay(1000);
+
     ESP.restart();
   }
 }
