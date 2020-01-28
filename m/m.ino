@@ -29,7 +29,7 @@ struct Msg {
 };
 std::map<long unsigned int, Msg> msgDictionary;
 std::map<long unsigned int, Msg>::iterator it;
-std::map<long unsigned int, int> relayDictionary
+std::map<long unsigned int, int> relayDictionary // Device id, channel number
 {
   { 0x8600721E, 8 },
   { 0x860041C4, 8},
@@ -202,11 +202,8 @@ void processCANMessage()
     {
       it->second = msgNew;
 
-      if(rxId != 0x8E405E17 && rxId != 0x8E605E17 && rxId != 0x8F005E17 && rxId != 0x87805E17)
-      {
-        printCANMessage("Diffrent data: ", rxId, len, rxBuf);
-        publishEvent(rxId, len, rxBuf);
-      }
+      printCANMessage("Diffrent data: ", rxId, len, rxBuf);
+      publishEvent(rxId, len, rxBuf);
     }
   }
 }
